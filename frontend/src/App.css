@@ -1,0 +1,268 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f5f6fa;
+  color: #222;
+}
+
+.app {
+  min-height: 100vh;
+}
+
+.cabecalho {
+  background: white;
+  padding: 25px 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.cabecalho h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.cabecalho p {
+  margin: 6px 0 0;
+  color: #666;
+}
+
+.contador {
+  background: #f1f1f1;
+  border-radius: 12px;
+  padding: 10px 20px;
+  text-align: center;
+}
+
+.contador span {
+  display: block;
+  font-size: 25px;
+  font-weight: bold;
+}
+
+.contador small {
+  color: #666;
+}
+
+main {
+  padding: 30px 40px;
+}
+
+main h2 {
+  margin-bottom: 20px;
+}
+
+.lista-pedidos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.card-pedido {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+}
+
+.card-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.card-topo h3 {
+  margin: 0;
+}
+
+.status {
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: bold;
+  background: #eee;
+}
+
+.informacoes p {
+  margin: 10px 0;
+  color: #555;
+}
+
+.card-rodape {
+  border-top: 1px solid #eee;
+  margin-top: 15px;
+  padding-top: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-rodape span {
+  font-size: 12px;
+  color: #888;
+}
+
+.sem-pedidos {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 15px;
+}
+
+.acoes button {
+  border: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  background: #eeeeee;
+}
+
+.acoes button:hover {
+  opacity: 0.8;
+}
+
+.formulario {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.grid input,
+.grid select {
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.btn-cadastrar {
+  margin-top: 18px;
+  width: 100%;
+  background: #5b8c5a;
+  color: white;
+  border: none;
+  padding: 14px;
+  border-radius: 10px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.itens-pedido {
+  margin-top: 18px;
+  padding-top: 15px;
+  border-top: 1px solid #eee;
+}
+
+.itens-pedido h4 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.item span {
+  color: #666;
+  font-size: 14px;
+  margin-top: 3px;
+}
+
+/* =========================
+   IDENTIDADE VISUAL
+   VERMELHO + BRANCO
+========================= */
+
+body {
+  background: #f7f7f7;
+}
+
+.cabecalho {
+  background: #c62828;
+  color: white;
+}
+
+.cabecalho p {
+  color: white;
+}
+
+.contador {
+  background: white;
+  color: #c62828;
+}
+
+.contador small {
+  color: #666;
+}
+
+main h2 {
+  color: #b71c1c;
+}
+
+.card-pedido {
+  border-top: 5px solid #c62828;
+}
+
+.card-topo h3 {
+  color: #b71c1c;
+}
+
+.status {
+  background: #c62828;
+  color: white;
+}
+
+.btn-cadastrar {
+  background: #c62828;
+}
+
+.btn-cadastrar:hover {
+  background: #b71c1c;
+}
+
+.acoes button {
+  background: #c62828;
+  color: white;
+}
+
+.acoes button:hover {
+  background: #b71c1c;
+}
+
+.itens-pedido h4 {
+  color: #c62828;
+}
+
+.pedido-finalizado {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f1f1f1;
+  color: #555;
+  font-weight: bold;
+}
