@@ -91,11 +91,92 @@ app.get("/pedidos", async (req, res) => {
 });
 
 // Criar pedido
+
+ // Buscar sessão ativa pelo telefone
+app.get("/sessoes/:telefone", async (req, res) => {
+    const telefone = req.params.telefone;
+
+    try {
+        const resultado = await pool.query(
+            `SELECT *
+             FROM sessoes_chatbot
+             WHERE telefone = $1 AND ativa = TRUE
+             ORDER BY data_atualizacao DESC
+             LIMIT 1`,
+            [telefone]
+        );
+
+        if (resultado.rows.length === 0) {
+            return res.json({
+                mensagem: "Nenhuma sessão ativa encontrada.",
+                sessao: null
+            });
+        }
+
+        res.json({
+            mensagem: "Sessão encontrada!",
+            sessao: resultado.rows[0]
+        });
+    } catch (erro) {
+        console.error(erro);
+        res.status(500).json({
+            mensagem: "Erro ao buscar sessão."
+        });
+    }
+});
+
+// Criar sessão para um cliente
+app.post("/sessoes", async (req, res) => {
+    const { telefone } = req.body;
+
+    if (!telefone || !telefone.trim()) {
+        return res.status(400).json({
+            mensagem: "Informe o telefone do cliente."
+        });
+    }
+
+    try {
+        const existente = await pool.query(
+            `SELECT *
+             FROM sessoes_chatbot
+             WHERE telefone = $1 AND ativa = TRUE
+             ORDER BY data_atualizacao DESC
+             LIMIT 1`,
+            [telefone]
+        );
+
+        if (existente.rows.length > 0) {
+            return res.json({
+                mensagem: "O cliente já possui uma sessão ativa.",
+                sessao: existente.rows[0]
+            });
+        }
+
+        const resultado = await pool.query(
+            `INSERT INTO sessoes_chatbot (telefone)
+             VALUES ($1)
+             RETURNING *`,
+            [telefone]
+        );
+
+        res.status(201).json({
+            mensagem: "Sessão criada com sucesso!",
+            sessao: resultado.rows[0]
+        });
+    } catch (erro) {
+        console.error(erro);
+        res.status(500).json({
+            mensagem: "Erro ao criar sessão."
+        });
+    }
+});
+
 app.post("/pedidos", async (req, res) => {
     const {
         cliente,
         telefone,
         endereco,
+        itens,
         produto,
         sabor,
         tamanho,
@@ -103,102 +184,155 @@ app.post("/pedidos", async (req, res) => {
         forma_pagamento
     } = req.body;
 
+    // Mantém compatibilidade com o formulário antigo:
+    // se vier apenas um produto, transforma em uma lista.
+    const listaItens = Array.isArray(itens)
+        ? itens
+        : [{ produto, sabor, tamanho, quantidade }];
+
+    if (
+        !cliente ||
+        !telefone ||
+        !endereco ||
+        !forma_pagamento ||
+        listaItens.length === 0
+    ) {
+        return res.status(400).json({
+            mensagem: "Preencha os dados do cliente e pelo menos um item."
+        });
+    }
+
+    const client = await pool.connect();
+
     try {
-        // Criar cliente
-        const novoCliente = await pool.query(
-            `
-            INSERT INTO clientes (nome, telefone, endereco)
-            VALUES ($1, $2, $3)
-            RETURNING id
-            `,
+        await client.query("BEGIN");
+
+        // Validar e preparar todos os itens antes de cadastrar o pedido.
+        const itensValidados = [];
+        let valorTotal = 0;
+
+        for (const item of listaItens) {
+            const quantidadeItem = Number(item.quantidade);
+
+            if (
+                !item.produto ||
+                !Number.isInteger(quantidadeItem) ||
+                quantidadeItem <= 0
+            ) {
+                throw new Error(
+                    "Cada item precisa ter um produto e uma quantidade inteira maior que zero."
+                );
+            }
+
+            const produtoEncontrado = await client.query(
+                "SELECT id, preco FROM produtos WHERE nome = $1",
+                [item.produto]
+            );
+
+            if (produtoEncontrado.rows.length === 0) {
+                throw new Error(`Produto não encontrado: ${item.produto}`);
+            }
+
+            const produtoId = produtoEncontrado.rows[0].id;
+            const preco = Number(produtoEncontrado.rows[0].preco);
+
+            let saborId = null;
+
+            if (item.sabor) {
+                const saborEncontrado = await client.query(
+                    "SELECT id FROM sabores WHERE nome = $1 AND ativo = TRUE",
+                    [item.sabor]
+                );
+
+                if (saborEncontrado.rows.length === 0) {
+                    throw new Error(`Sabor não encontrado: ${item.sabor}`);
+                }
+
+                saborId = saborEncontrado.rows[0].id;
+            }
+
+            valorTotal += preco * quantidadeItem;
+
+            itensValidados.push({
+                produtoId,
+                saborId,
+                tamanho: item.tamanho || null,
+                quantidade: quantidadeItem,
+                preco
+            });
+        }
+
+        // Cadastrar cliente somente após validar os itens.
+        const novoCliente = await client.query(
+            `INSERT INTO clientes (nome, telefone, endereco)
+             VALUES ($1, $2, $3)
+             RETURNING id`,
             [cliente, telefone, endereco]
         );
 
         const clienteId = novoCliente.rows[0].id;
 
-        // Buscar produto
-        const produtoEncontrado = await pool.query(
-            "SELECT id, preco FROM produtos WHERE nome = $1",
-            [produto]
-        );
-
-        if (produtoEncontrado.rows.length === 0) {
-            return res.status(400).json({
-                mensagem: "Produto não encontrado."
-            });
-        }
-
-        const produtoId = produtoEncontrado.rows[0].id;
-        const preco = produtoEncontrado.rows[0].preco;
-
-        // Buscar sabor
-        const saborEncontrado = await pool.query(
-            "SELECT id FROM sabores WHERE nome = $1 AND ativo = TRUE",
-            [sabor]
-        );
-
-        if (saborEncontrado.rows.length === 0) {
-            return res.status(400).json({
-                mensagem: "Sabor não encontrado."
-            });
-        }
-
-        const saborId = saborEncontrado.rows[0].id;
-
-        // Calcular valor
-        const valorTotal = Number(preco) * Number(quantidade);
-
-        // Criar pedido
-        const novoPedido = await pool.query(
-            `
-            INSERT INTO pedidos 
-            (cliente_id, forma_pagamento, status, valor_total)
-            VALUES ($1, $2, 'Recebido', $3)
-            RETURNING id, status, valor_total, data_hora
-            `,
+        // Criar o pedido com o valor total de todos os itens.
+        const novoPedido = await client.query(
+            `INSERT INTO pedidos
+             (cliente_id, forma_pagamento, status, valor_total)
+             VALUES ($1, $2, 'Recebido', $3)
+             RETURNING id, status, valor_total, data_hora`,
             [clienteId, forma_pagamento, valorTotal]
         );
 
         const pedidoId = novoPedido.rows[0].id;
 
-        // Criar item do pedido
-        await pool.query(
-            `
-            INSERT INTO itens_pedido
-            (pedido_id, produto_id, sabor_id, tamanho, quantidade, preco)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            `,
-            [
-                pedidoId,
-                produtoId,
-                saborId,
-                tamanho,
-                quantidade,
-                preco
-            ]
-        );
+        // Registrar todos os itens associados ao mesmo pedido.
+        for (const item of itensValidados) {
+            await client.query(
+                `INSERT INTO itens_pedido
+                 (pedido_id, produto_id, sabor_id, tamanho, quantidade, preco)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                [
+                    pedidoId,
+                    item.produtoId,
+                    item.saborId,
+                    item.tamanho,
+                    item.quantidade,
+                    item.preco
+                ]
+            );
+        }
+
+        await client.query("COMMIT");
 
         res.status(201).json({
             mensagem: "Pedido criado com sucesso!",
             pedido: {
                 id: pedidoId,
                 cliente,
-                produto,
-                sabor,
-                tamanho,
-                quantidade,
+                telefone,
+                endereco,
+                itens: itensValidados,
                 forma_pagamento,
                 valor_total: valorTotal,
-                status: "Recebido"
+                status: novoPedido.rows[0].status,
+                data_hora: novoPedido.rows[0].data_hora
             }
         });
-
     } catch (erro) {
+        await client.query("ROLLBACK");
+
         console.error(erro);
 
-        res.status(500).json({
-            mensagem: "Erro ao criar pedido."
+        const erroDeValidacao =
+            erro.message.startsWith("Produto não encontrado:") ||
+            erro.message.startsWith("Sabor não encontrado:") ||
+            erro.message.startsWith("Cada item precisa");
+
+        res.status(erroDeValidacao ? 400 : 500).json({
+            mensagem: erroDeValidacao
+                ? erro.message
+                : "Erro ao criar pedido."
         });
+    } finally {
+        client.release();
     }
 });
 
