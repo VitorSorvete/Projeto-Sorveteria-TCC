@@ -90,6 +90,58 @@ app.get("/pedidos", async (req, res) => {
     }
 });
 
+app.put("/sessoes/:id", async (req, res) => {
+    const { id } = req.params;
+    const { estado, dados_conversa } = req.body;
+
+    const estadosPermitidos = [
+        "inicio",
+        "escolhendo_produto",
+        "informando_endereco",
+        "escolhendo_pagamento",
+        "confirmando_pedido",
+        "finalizado"
+    ];
+
+    if (!estadosPermitidos.includes(estado)) {
+        return res.status(400).json({
+            mensagem: "Estado da conversa inválido."
+        });
+    }
+
+    try {
+        const resultado = await pool.query(
+            `UPDATE sessoes_chatbot
+             SET estado = $1,
+                 dados_conversa = $2,
+                 data_atualizacao = CURRENT_TIMESTAMP
+             WHERE id = $3 AND ativa = TRUE
+             RETURNING *`,
+            [
+                estado,
+                JSON.stringify(dados_conversa || {}),
+                id
+            ]
+        );
+
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({
+                mensagem: "Sessão ativa não encontrada."
+            });
+        }
+
+        res.json({
+            mensagem: "Sessão atualizada com sucesso!",
+            sessao: resultado.rows[0]
+        });
+    } catch (erro) {
+        console.error(erro);
+        res.status(500).json({
+            mensagem: "Erro ao atualizar sessão."
+        });
+    }
+});
+
 // Criar pedido
 
  // Buscar sessão ativa pelo telefone
@@ -171,6 +223,197 @@ app.post("/sessoes", async (req, res) => {
     }
 });
 
+
+
+app.post("/chatbot/mensagem", async (req, res) => {
+    const { telefone, mensagem } = req.body;
+
+    if (
+        !telefone ||
+        typeof telefone !== "string" ||
+        !mensagem ||
+        typeof mensagem !== "string" ||
+        !mensagem.trim()
+    ) {
+        return res.status(400).json({
+            mensagem: "Informe o telefone e a mensagem do cliente."
+        });
+    }
+
+    try {
+        let resultado = await pool.query(
+            `SELECT *
+             FROM sessoes_chatbot
+             WHERE telefone = $1 AND ativa = TRUE
+             ORDER BY data_atualizacao DESC
+             LIMIT 1`,
+            [telefone]
+        );
+
+        let sessao;
+
+        if (resultado.rows.length === 0) {
+            resultado = await pool.query(
+                `INSERT INTO sessoes_chatbot (telefone)
+                 VALUES ($1)
+                 RETURNING *`,
+                [telefone]
+            );
+            sessao = resultado.rows[0];
+        } else {
+            sessao = resultado.rows[0];
+        }
+
+        const texto = mensagem.trim().toLowerCase();
+        let resposta;
+        let novoEstado = sessao.estado;
+        let dados = sessao.dados_conversa || {};
+
+        if (
+            ["oi", "olá", "ola", "bom dia", "boa tarde", "boa noite", "menu"].includes(texto)
+        ) {
+            resposta =
+                "Olá! 🍦 Bem-vindo à nossa sorveteria!\n\n" +
+                "Digite uma opção:\n" +
+                "1 - Ver cardápio\n" +
+                "2 - Fazer pedido\n" +
+                "3 - Falar com atendente";
+
+            novoEstado = "inicio";
+
+        } else if ((texto === "1" || texto === "2") && sessao.estado === "inicio") {
+            const produtos = await pool.query(
+                "SELECT id, nome, preco FROM produtos ORDER BY id"
+            );
+
+            dados.produtos_disponiveis = produtos.rows;
+
+            resposta =
+                "🍨 Nosso cardápio:\n\n" +
+                produtos.rows
+                    .map((p, i) =>
+                        `${i + 1} - ${p.nome} - R$ ${Number(p.preco).toFixed(2)}`
+                    )
+                    .join("\n") +
+                "\n\nDigite o número do produto que deseja escolher.";
+
+            novoEstado = "escolhendo_produto";
+
+        } else if (sessao.estado === "escolhendo_produto") {
+            const numero = Number(texto);
+            const produtos = dados.produtos_disponiveis || [];
+            const produto = produtos[numero - 1];
+
+            if (!Number.isInteger(numero) || !produto) {
+                resposta =
+                    "Não encontrei esse produto. Digite um número válido do cardápio.";
+            } else {
+                dados.item_atual = {
+                    produto_id: produto.id,
+                    produto: produto.nome,
+                    preco: Number(produto.preco),
+                    quantidade: 1
+                };
+
+                resposta =
+                    `Você escolheu ${produto.nome}! 🍦\n\n` +
+                    "Agora digite a quantidade desejada.";
+
+                novoEstado = "informando_quantidade";
+            }
+
+        } else if (sessao.estado === "informando_quantidade") {
+            const quantidade = Number(texto);
+
+            if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) {
+                resposta = "Digite uma quantidade inteira entre 1 e 50.";
+            } else if (!dados.item_atual) {
+                resposta = "Não encontrei o produto escolhido. Digite *oi* para começar novamente.";
+                novoEstado = "inicio";
+            } else {
+                dados.item_atual.quantidade = quantidade;
+                dados.itens = dados.itens || [];
+                dados.itens.push(dados.item_atual);
+                delete dados.item_atual;
+
+                resposta =
+                    "Item adicionado ao pedido! ✅\n\n" +
+                    "Digite 1 para adicionar outro produto ou 2 para finalizar a seleção.";
+
+                novoEstado = "adicionando_itens";
+            }
+
+        } else if (sessao.estado === "adicionando_itens" && texto === "1") {
+            const produtos = await pool.query(
+                "SELECT id, nome, preco FROM produtos ORDER BY id"
+            );
+
+            dados.produtos_disponiveis = produtos.rows;
+
+            resposta =
+                "🍨 Escolha outro produto:\n\n" +
+                produtos.rows
+                    .map((p, i) =>
+                        `${i + 1} - ${p.nome} - R$ ${Number(p.preco).toFixed(2)}`
+                    )
+                    .join("\n") +
+                "\n\nDigite o número do produto.";
+
+            novoEstado = "escolhendo_produto";
+
+        } else if (sessao.estado === "adicionando_itens" && texto === "2") {
+            const itens = dados.itens || [];
+
+            if (itens.length === 0) {
+                resposta = "Seu pedido ainda não tem itens. Digite 1 para escolher um produto.";
+                novoEstado = "inicio";
+            } else {
+                const total = itens.reduce(
+                    (soma, item) => soma + item.preco * item.quantidade,
+                    0
+                );
+
+                resposta =
+                    "🛒 Resumo do pedido:\n\n" +
+                    itens.map(item =>
+                        `${item.quantidade}x ${item.produto} - R$ ${(item.preco * item.quantidade).toFixed(2)}`
+                    ).join("\n") +
+                    `\n\nTotal: R$ ${total.toFixed(2)}` +
+                    "\n\nA seleção foi concluída. O cadastro definitivo do pedido será implementado na próxima etapa.";
+
+                novoEstado = "confirmando_pedido";
+            }
+
+        } else if (texto === "3") {
+            resposta =
+                "Para falar com um atendente, entre em contato diretamente com a equipe da sorveteria.";
+        } else {
+            resposta =
+                "Não entendi sua mensagem. Digite *oi* para ver as opções.";
+        }
+
+        const atualizada = await pool.query(
+            `UPDATE sessoes_chatbot
+             SET estado = $1,
+                 dados_conversa = $2,
+                 data_atualizacao = CURRENT_TIMESTAMP
+             WHERE id = $3
+             RETURNING *`,
+            [novoEstado, JSON.stringify(dados), sessao.id]
+        );
+
+        res.json({
+            resposta,
+            sessao: atualizada.rows[0]
+        });
+
+    } catch (erro) {
+        console.error(erro);
+        res.status(500).json({
+            mensagem: "Erro ao processar mensagem do chatbot."
+        });
+    }
+});
 app.post("/pedidos", async (req, res) => {
     const {
         cliente,
