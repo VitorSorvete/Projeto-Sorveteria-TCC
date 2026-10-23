@@ -227,6 +227,7 @@ app.post("/sessoes", async (req, res) => {
 
 app.post("/chatbot/mensagem", async (req, res) => {
     const { telefone, mensagem } = req.body;
+    console.log("TESTE CHATBOT:", { telefone, mensagem });  
 
     if (
         !telefone ||
@@ -279,8 +280,14 @@ app.post("/chatbot/mensagem", async (req, res) => {
                 "2 - Fazer pedido\n" +
                 "3 - Falar com atendente";
 
+            dados = {};
             novoEstado = "inicio";
+        } else if (sessao.estado === "finalizado") {
+            resposta =
+                "Este pedido já foi finalizado! ✅\n\n" +
+                "Digite *oi* para iniciar um novo atendimento.";
 
+            novoEstado = "finalizado";
         } else if ((texto === "1" || texto === "2") && sessao.estado === "inicio") {
             const produtos = await pool.query(
                 "SELECT id, nome, preco FROM produtos ORDER BY id"
@@ -321,7 +328,177 @@ app.post("/chatbot/mensagem", async (req, res) => {
 
                 novoEstado = "informando_quantidade";
             }
+            
+            } else if (sessao.estado === "confirmando_pedido") {
+            if (texto === "2") {
+                dados.itens = [];
+                delete dados.cliente;
+                delete dados.endereco;
+                delete dados.forma_pagamento;
 
+                resposta =
+                    "Pedido cancelado. ❌\n\n" +
+                    "Digite *oi* para começar novamente.";
+
+                novoEstado = "inicio";
+
+            } else if (texto === "1") {
+                const itens = dados.itens || [];
+
+                if (
+                    !dados.cliente ||
+                    !dados.endereco ||
+                    !dados.forma_pagamento ||
+                    itens.length === 0
+                ) {
+                    resposta =
+                        "Não consegui confirmar os dados do pedido. " +
+                        "Digite *oi* para começar novamente.";
+
+                    novoEstado = "inicio";
+
+                } else {
+                    const client = await pool.connect();
+
+                    try {
+                        await client.query("BEGIN");
+
+                        const clienteResult = await client.query(
+                            `INSERT INTO clientes (nome, telefone, endereco)
+                             VALUES ($1, $2, $3)
+                             RETURNING id`,
+                            [
+                                dados.cliente,
+                                telefone,
+                                dados.endereco
+                            ]
+                        );
+
+                        const clienteId = clienteResult.rows[0].id;
+
+                        const total = itens.reduce(
+                            (soma, item) =>
+                                soma + Number(item.preco) * Number(item.quantidade),
+                            0
+                        );
+
+                        const pedidoResult = await client.query(
+                            `INSERT INTO pedidos
+                             (cliente_id, forma_pagamento, status, valor_total)
+                             VALUES ($1, $2, $3, $4)
+                             RETURNING id`,
+                            [
+                                clienteId,
+                                dados.forma_pagamento,
+                                "Recebido",
+                                total
+                            ]
+                        );
+
+                        const pedidoId = pedidoResult.rows[0].id;
+
+                        for (const item of itens) {
+                            await client.query(
+                                `INSERT INTO itens_pedido
+                                 (pedido_id, produto_id, quantidade, preco)
+                                 VALUES ($1, $2, $3, $4)`,
+                                [
+                                    pedidoId,
+                                    item.produto_id,
+                                    item.quantidade,
+                                    item.preco
+                                ]
+                            );
+                        }
+
+                        await client.query("COMMIT");
+
+                        resposta =
+                            `Pedido confirmado com sucesso! ✅\n\n` +
+                            `Número do pedido: ${pedidoId}\n` +
+                            `Total: R$ ${total.toFixed(2)}\n` +
+                            `Pagamento: ${dados.forma_pagamento}\n\n` +
+                            "Obrigado pela preferência! 🍦";
+
+                        dados.pedido_id = pedidoId;
+                        novoEstado = "finalizado";
+
+                    } catch (erroBanco) {
+                        await client.query("ROLLBACK");
+                        throw erroBanco;
+
+                    } finally {
+                        client.release();
+                    }
+                }
+
+            } else {
+                resposta =
+                    "Digite 1 para confirmar o pedido ou 2 para cancelar.";
+            }
+            } else if (sessao.estado === "escolhendo_pagamento") {
+            const formasPagamento = {
+                "1": "Pix",
+                "2": "Cartão",
+                "3": "Dinheiro"
+            };
+
+            if (!formasPagamento[texto]) {
+                resposta =
+                    "Escolha uma forma de pagamento válida:\n\n" +
+                    "1 - Pix\n" +
+                    "2 - Cartão\n" +
+                    "3 - Dinheiro";
+            } else {
+                dados.forma_pagamento = formasPagamento[texto];
+
+                const itens = dados.itens || [];
+                const total = itens.reduce(
+                    (soma, item) => soma + item.preco * item.quantidade,
+                    0
+                );
+
+                resposta =
+                    "Confira seu pedido:\n\n" +
+                    `Cliente: ${dados.cliente}\n` +
+                    `Endereço: ${dados.endereco}\n` +
+                    `Pagamento: ${dados.forma_pagamento}\n\n` +
+                    itens.map(item =>
+                        `${item.quantidade}x ${item.produto} - R$ ${(item.preco * item.quantidade).toFixed(2)}`
+                    ).join("\n") +
+                    `\n\nTotal: R$ ${total.toFixed(2)}` +
+                    "\n\nDigite 1 para confirmar o pedido ou 2 para cancelar.";
+
+                novoEstado = "confirmando_pedido";
+            }
+            } else if (sessao.estado === "informando_nome") {
+            if (texto.length < 3) {
+                resposta = "Por favor, informe seu nome completo.";
+            } else {
+                dados.cliente = mensagem.trim();
+
+                resposta =
+                    `Obrigado, ${dados.cliente}! 😊\n\n` +
+                    "Agora informe o endereço completo para entrega.";
+
+                novoEstado = "informando_endereco";
+            }
+
+        } else if (sessao.estado === "informando_endereco") {
+            if (texto.length < 5) {
+                resposta = "Por favor, informe um endereço mais completo.";
+            } else {
+                dados.endereco = mensagem.trim();
+
+                resposta =
+                    "Como você deseja pagar?\n\n" +
+                    "1 - Pix\n" +
+                    "2 - Cartão\n" +
+                    "3 - Dinheiro";
+
+                novoEstado = "escolhendo_pagamento";
+            }
+        
         } else if (sessao.estado === "informando_quantidade") {
             const quantidade = Number(texto);
 
@@ -379,9 +556,9 @@ app.post("/chatbot/mensagem", async (req, res) => {
                         `${item.quantidade}x ${item.produto} - R$ ${(item.preco * item.quantidade).toFixed(2)}`
                     ).join("\n") +
                     `\n\nTotal: R$ ${total.toFixed(2)}` +
-                    "\n\nA seleção foi concluída. O cadastro definitivo do pedido será implementado na próxima etapa.";
+                    "\n\nPara continuar com seu pedido, informe seu nome completo.";
 
-                novoEstado = "confirmando_pedido";
+                novoEstado = "informando_nome";
             }
 
         } else if (texto === "3") {
