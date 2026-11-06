@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import "./App.css";
 
@@ -7,6 +6,38 @@ function App() {
   const [produtos, setProdutos] = useState([]);
   const [sabores, setSabores] = useState([]);
   const [itens, setItens] = useState([]);
+  const [filtroStatus, setFiltroStatus] = useState("Todos");
+  const [pesquisa, setPesquisa] = useState("");
+
+  const totalPedidos = pedidos.length;
+
+  const faturamentoTotal = pedidos.reduce(
+    (total, pedido) => total + Number(pedido.valor_total || 0),
+    0,
+  );
+
+  const pedidosFiltrados = pedidos.filter((pedido) => {
+    const correspondeStatus =
+      filtroStatus === "Todos" || pedido.status === filtroStatus;
+
+    const termo = pesquisa.toLowerCase();
+
+    const correspondePesquisa =
+      (pedido.cliente || "").toLowerCase().includes(termo) ||
+      (pedido.telefone || "").includes(termo);
+
+    return correspondeStatus && correspondePesquisa;
+  });
+
+  const pedidosPendentes = pedidos.filter(
+    (pedido) => pedido.status !== "Entregue",
+  ).length;
+
+  const recebidos = pedidos.filter((p) => p.status === "Recebido").length;
+  const preparando = pedidos.filter((p) => p.status === "Preparando").length;
+  const prontos = pedidos.filter((p) => p.status === "Pronto").length;
+  const emEntrega = pedidos.filter((p) => p.status === "Em entrega").length;
+  const entregues = pedidos.filter((p) => p.status === "Entregue").length;
 
   const [form, setForm] = useState({
     cliente: "",
@@ -40,6 +71,12 @@ function App() {
       .then((res) => res.json())
       .then(setSabores)
       .catch((erro) => console.error("Erro ao buscar sabores:", erro));
+
+    const intervalo = setInterval(() => {
+      carregarPedidos();
+    }, 15000);
+
+    return () => clearInterval(intervalo);
   }, []);
 
   function alterarStatus(id, novoStatus) {
@@ -54,6 +91,16 @@ function App() {
       })
       .then(carregarPedidos)
       .catch((erro) => console.error("Erro ao alterar status:", erro));
+  }
+
+  function cancelarPedido(id) {
+    const confirmar = window.confirm(
+      "Tem certeza que deseja cancelar este pedido?",
+    );
+
+    if (confirmar) {
+      alterarStatus(id, "Cancelado");
+    }
   }
 
   function proximoStatus(status) {
@@ -109,7 +156,7 @@ function App() {
 
   function removerItem(indiceRemover) {
     setItens((atuais) =>
-      atuais.filter((_, indice) => indice !== indiceRemover)
+      atuais.filter((_, indice) => indice !== indiceRemover),
     );
   }
 
@@ -186,6 +233,59 @@ function App() {
           <small>Pedidos</small>
         </div>
       </header>
+
+      <section className="indicadores">
+        <div className="indicador">
+          <span>Total de pedidos</span>
+          <strong>{totalPedidos}</strong>
+        </div>
+
+        <div className="indicador">
+          <span>Faturamento total</span>
+          <strong>
+            {faturamentoTotal.toLocaleString("pt-BR", {
+              style: "currency",
+              currency: "BRL",
+            })}
+          </strong>
+        </div>
+
+        <div className="indicador">
+          <span>Pedidos pendentes</span>
+          <strong>{pedidosPendentes}</strong>
+        </div>
+      </section>
+
+      <section className="resumo-status">
+        <h2>Acompanhamento dos pedidos</h2>
+
+        <div className="status-grid">
+          <div className="status-card recebido">
+            <span>Recebidos</span>
+            <strong>{recebidos}</strong>
+          </div>
+
+          <div className="status-card preparando">
+            <span>Preparando</span>
+            <strong>{preparando}</strong>
+          </div>
+
+          <div className="status-card pronto">
+            <span>Prontos</span>
+            <strong>{prontos}</strong>
+          </div>
+
+          <div className="status-card entrega">
+            <span>Em entrega</span>
+            <strong>{emEntrega}</strong>
+          </div>
+
+          <div className="status-card entregue">
+            <span>Entregues</span>
+            <strong>{entregues}</strong>
+          </div>
+        </div>
+      </section>
 
       <main>
         <form className="formulario" onSubmit={cadastrarPedido}>
@@ -291,10 +391,7 @@ function App() {
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => removerItem(indice)}
-                  >
+                  <button type="button" onClick={() => removerItem(indice)}>
                     Remover
                   </button>
                 </div>
@@ -307,26 +404,60 @@ function App() {
           </button>
         </form>
 
-        <h2>Pedidos recebidos</h2>
+        <div className="filtros-pedidos">
+          <h2>Pedidos recebidos</h2>
 
-        {pedidos.length === 0 ? (
+          <input
+            type="text"
+            placeholder="Pesquisar por cliente ou telefone..."
+            value={pesquisa}
+            onChange={(e) => setPesquisa(e.target.value)}
+            className="campo-pesquisa"
+          />
+
+          <select
+            value={filtroStatus}
+            onChange={(e) => setFiltroStatus(e.target.value)}
+          >
+            <option value="Todos">Todos os pedidos</option>
+            <option value="Recebido">Recebidos</option>
+            <option value="Preparando">Em preparação</option>
+            <option value="Pronto">Prontos</option>
+            <option value="Em entrega">Em entrega</option>
+            <option value="Entregue">Entregues</option>
+          </select>
+        </div>
+
+        {pedidosFiltrados.length === 0 ? (
           <div className="sem-pedidos">
             <p>Nenhum pedido encontrado.</p>
           </div>
         ) : (
           <div className="lista-pedidos">
-            {pedidos.map((pedido) => (
+            {pedidosFiltrados.map((pedido) => (
               <div className="card-pedido" key={pedido.id}>
                 <div className="card-topo">
                   <h3>Pedido #{pedido.id}</h3>
-                  <span className="status">{pedido.status}</span>
+                  <span
+                    className={`status status-${pedido.status.toLowerCase().replace(" ", "-")}`}
+                  >
+                    {pedido.status}
+                  </span>
                 </div>
 
                 <div className="informacoes">
-                  <p><strong>👤 Cliente:</strong> {pedido.cliente}</p>
-                  <p><strong>📱 Telefone:</strong> {pedido.telefone}</p>
-                  <p><strong>📍 Endereço:</strong> {pedido.endereco}</p>
-                  <p><strong>💳 Pagamento:</strong> {pedido.forma_pagamento}</p>
+                  <p>
+                    <strong>👤 Cliente:</strong> {pedido.cliente}
+                  </p>
+                  <p>
+                    <strong>📱 Telefone:</strong> {pedido.telefone}
+                  </p>
+                  <p>
+                    <strong>📍 Endereço:</strong> {pedido.endereco}
+                  </p>
+                  <p>
+                    <strong>💳 Pagamento:</strong> {pedido.forma_pagamento}
+                  </p>
 
                   <div className="itens-pedido">
                     <h4>🛒 Itens do pedido</h4>
@@ -359,7 +490,7 @@ function App() {
                       onClick={() =>
                         alterarStatus(
                           pedido.id,
-                          proximoStatus(pedido.status).status
+                          proximoStatus(pedido.status).status,
                         )
                       }
                     >
@@ -367,9 +498,21 @@ function App() {
                     </button>
                   ) : (
                     <span className="pedido-finalizado">
-                      ✓ Pedido entregue
+                      {pedido.status === "Cancelado"
+                        ? "✕ Pedido cancelado"
+                        : "✓ Pedido entregue"}
                     </span>
                   )}
+
+                  {pedido.status !== "Entregue" &&
+                    pedido.status !== "Cancelado" && (
+                      <button
+                        className="btn-cancelar"
+                        onClick={() => cancelarPedido(pedido.id)}
+                      >
+                        ✕ Cancelar pedido
+                      </button>
+                    )}
                 </div>
               </div>
             ))}
