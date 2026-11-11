@@ -471,3 +471,13 @@ main h2 {
   flex-wrap: wrap;
   margin-bottom: 20px;
 }
+
+.status-cancelado {
+  background-color: #ffe0e0;
+  color: #b71c1c;
+}
+
+.status-card.cancelado {
+  background-color: #ffe0e0;
+  color: #b71c1c;
+}

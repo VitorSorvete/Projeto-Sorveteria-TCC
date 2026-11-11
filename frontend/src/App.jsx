@@ -11,10 +11,9 @@ function App() {
 
   const totalPedidos = pedidos.length;
 
-  const faturamentoTotal = pedidos.reduce(
-    (total, pedido) => total + Number(pedido.valor_total || 0),
-    0,
-  );
+  const faturamentoTotal = pedidos
+    .filter((pedido) => pedido.status !== "Cancelado")
+    .reduce((total, pedido) => total + Number(pedido.valor_total || 0), 0);
 
   const pedidosFiltrados = pedidos.filter((pedido) => {
     const correspondeStatus =
@@ -30,7 +29,7 @@ function App() {
   });
 
   const pedidosPendentes = pedidos.filter(
-    (pedido) => pedido.status !== "Entregue",
+    (pedido) => pedido.status !== "Entregue" && pedido.status !== "Cancelado",
   ).length;
 
   const recebidos = pedidos.filter((p) => p.status === "Recebido").length;
@@ -38,6 +37,7 @@ function App() {
   const prontos = pedidos.filter((p) => p.status === "Pronto").length;
   const emEntrega = pedidos.filter((p) => p.status === "Em entrega").length;
   const entregues = pedidos.filter((p) => p.status === "Entregue").length;
+  const cancelados = pedidos.filter((p) => p.status === "Cancelado").length;
 
   const [form, setForm] = useState({
     cliente: "",
@@ -284,6 +284,10 @@ function App() {
             <span>Entregues</span>
             <strong>{entregues}</strong>
           </div>
+          <div className="status-card cancelado">
+            <span>Cancelados</span>
+            <strong>{cancelados}</strong>
+          </div>
         </div>
       </section>
 
@@ -425,6 +429,7 @@ function App() {
             <option value="Pronto">Prontos</option>
             <option value="Em entrega">Em entrega</option>
             <option value="Entregue">Entregues</option>
+            <option value="Cancelado">Cancelados</option>
           </select>
         </div>
 
